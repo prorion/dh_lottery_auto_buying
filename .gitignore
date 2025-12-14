@@ -1,0 +1,29 @@
+# 설정 파일 (민감정보 포함)
+config.json
+
+# 디버그 파일
+*.html
+*.log
+
+# Go 빌드 파일
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 테스트 결과
+*.test
+*.out
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
