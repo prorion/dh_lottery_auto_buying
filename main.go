@@ -3,11 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -107,40 +111,98 @@ func NewDhLottery(config Config) (*DhLottery, error) {
 	}, nil
 }
 
+// RSAModulusResponse는 RSA 공개키 응답 구조체입니다
+type RSAModulusResponse struct {
+	RsaModulus     string `json:"rsaModulus"`
+	PublicExponent string `json:"publicExponent"`
+}
+
+// encryptRSA는 문자열을 RSA로 암호화합니다
+func encryptRSA(plaintext, modulusHex, exponentHex string) (string, error) {
+	// 16진수 modulus를 big.Int로 변환
+	modulus := new(big.Int)
+	modulus.SetString(modulusHex, 16)
+
+	// 16진수 exponent를 int로 변환
+	exponent := new(big.Int)
+	exponent.SetString(exponentHex, 16)
+
+	// RSA 공개키 생성
+	pubKey := &rsa.PublicKey{
+		N: modulus,
+		E: int(exponent.Int64()),
+	}
+
+	// RSA PKCS1v15로 암호화
+	ciphertext, err := rsa.EncryptPKCS1v15(rand.Reader, pubKey, []byte(plaintext))
+	if err != nil {
+		return "", fmt.Errorf("RSA 암호화 실패: %w", err)
+	}
+
+	// 16진수 문자열로 변환
+	return hex.EncodeToString(ciphertext), nil
+}
+
 // Login은 동행복권 사이트에 로그인합니다
 func (d *DhLottery) Login() error {
-	loginURL := "https://www.dhlottery.co.kr/user.do?method=login&returnUrl="
+	log.Println("1단계: 로그인 페이지 접속 중...")
 
-	// 로그인 페이지 접속
+	// 새로운 로그인 페이지 URL
+	loginURL := "https://www.dhlottery.co.kr/login"
+
+	// 로그인 페이지 접속 (쿠키 획득)
 	resp, err := d.client.Get(loginURL)
 	if err != nil {
 		return fmt.Errorf("로그인 페이지 접속 실패: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// HTML 파싱
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	log.Println("2단계: RSA 공개키 가져오는 중...")
+
+	// RSA 공개키 가져오기
+	rsaURL := "https://www.dhlottery.co.kr/login/selectRsaModulus.do"
+	rsaResp, err := d.client.Get(rsaURL)
 	if err != nil {
-		return fmt.Errorf("HTML 파싱 실패: %w", err)
+		return fmt.Errorf("RSA 공개키 가져오기 실패: %w", err)
 	}
+	defer rsaResp.Body.Close()
+
+	rsaBody, _ := io.ReadAll(rsaResp.Body)
+
+	var rsaData struct {
+		Data RSAModulusResponse `json:"data"`
+	}
+
+	if err := json.Unmarshal(rsaBody, &rsaData); err != nil {
+		return fmt.Errorf("RSA 공개키 파싱 실패: %w", err)
+	}
+
+	log.Printf("   → RSA Modulus: %s...\n", rsaData.Data.RsaModulus[:20])
+	log.Printf("   → Public Exponent: %s\n", rsaData.Data.PublicExponent)
+
+	log.Println("3단계: 아이디/비밀번호 암호화 중...")
+
+	// 아이디와 비밀번호를 RSA로 암호화
+	encryptedUserID, err := encryptRSA(d.config.UserID, rsaData.Data.RsaModulus, rsaData.Data.PublicExponent)
+	if err != nil {
+		return fmt.Errorf("아이디 암호화 실패: %w", err)
+	}
+
+	encryptedPassword, err := encryptRSA(d.config.Password, rsaData.Data.RsaModulus, rsaData.Data.PublicExponent)
+	if err != nil {
+		return fmt.Errorf("비밀번호 암호화 실패: %w", err)
+	}
+
+	log.Println("4단계: 로그인 요청 전송 중...")
 
 	// 로그인 폼 데이터 준비
 	formData := url.Values{}
-	formData.Set("returnUrl", "")
-	formData.Set("userId", d.config.UserID)
-	formData.Set("password", d.config.Password)
-
-	// hidden 필드들 추출 (CSRF 토큰 등)
-	doc.Find("form input[type='hidden']").Each(func(i int, s *goquery.Selection) {
-		if name, exists := s.Attr("name"); exists {
-			if value, exists := s.Attr("value"); exists {
-				formData.Set(name, value)
-			}
-		}
-	})
+	formData.Set("userId", encryptedUserID)
+	formData.Set("userPswdEncn", encryptedPassword)
 
 	// POST 요청 생성
-	req, err := http.NewRequest("POST", "https://www.dhlottery.co.kr/userSsl.do?method=login",
+	loginActionURL := "https://www.dhlottery.co.kr/login/securityLoginCheck.do"
+	req, err := http.NewRequest("POST", loginActionURL,
 		strings.NewReader(formData.Encode()))
 	if err != nil {
 		return fmt.Errorf("로그인 요청 생성 실패: %w", err)
@@ -165,31 +227,45 @@ func (d *DhLottery) Login() error {
 	body, _ := io.ReadAll(loginResp.Body)
 	bodyStr := string(body)
 
+	log.Printf("   → 응답 상태 코드: %d\n", loginResp.StatusCode)
+	log.Printf("   → 응답 URL: %s\n", loginResp.Request.URL.String())
+
 	// 로그인 실패 체크
 	if strings.Contains(bodyStr, "아이디 또는 비밀번호를 확인해주세요") ||
-		strings.Contains(bodyStr, "아이디") && strings.Contains(bodyStr, "비밀번호") && strings.Contains(bodyStr, "확인") {
+		strings.Contains(bodyStr, "로그인에 실패") ||
+		strings.Contains(bodyStr, "loginFail") {
 		return fmt.Errorf("로그인 실패: 아이디 또는 비밀번호가 올바르지 않습니다")
 	}
 
-	// 로그인 성공 체크 - loginResult 페이지 확인
-	if strings.Contains(loginResp.Request.URL.String(), "loginResult") && loginResp.StatusCode == 200 {
-		log.Println("✅ 로그인 성공")
+	// 로그인 성공 체크
+	isLoggedIn := false
+
+	// 방법 1: URL 체크 (성공 시 리다이렉트)
+	if strings.Contains(loginResp.Request.URL.String(), "main") ||
+		strings.Contains(loginResp.Request.URL.String(), "index") ||
+		loginResp.Request.URL.Path == "/" {
+		isLoggedIn = true
 	}
 
-	// 쿠키 확인
-	cookies := d.client.Jar.Cookies(loginResp.Request.URL)
+	// 방법 2: 로그아웃 링크 존재 확인
+	if strings.Contains(bodyStr, "로그아웃") || strings.Contains(bodyStr, "logout") {
+		isLoggedIn = true
+	}
 
-	// 세션 쿠키 확인
-	hasSession := false
+	// 방법 3: 세션 쿠키 확인
+	cookies := d.client.Jar.Cookies(loginResp.Request.URL)
 	for _, cookie := range cookies {
-		if cookie.Name == "JSESSIONID" {
-			hasSession = true
+		if cookie.Name == "JSESSIONID" && cookie.Value != "" {
+			isLoggedIn = true
+			log.Printf("   → 세션 쿠키 획득: %s\n", cookie.Value[:20]+"...")
 			break
 		}
 	}
 
-	if !hasSession {
-		return fmt.Errorf("로그인 실패: 세션 쿠키를 찾을 수 없습니다")
+	if !isLoggedIn {
+		// 디버깅을 위해 응답 일부 출력
+		log.Printf("응답 내용 샘플 (처음 500자):\n%s\n", bodyStr[:min(500, len(bodyStr))])
+		return fmt.Errorf("로그인 실패: 로그인 확인 실패")
 	}
 
 	log.Println("✅ 로그인 완료! 세션이 정상적으로 생성되었습니다")
@@ -200,10 +276,22 @@ func (d *DhLottery) Login() error {
 func (d *DhLottery) CheckBalance() (int, error) {
 	log.Println("예치금 확인 중...")
 
-	// 메인 페이지 접속 (실제 메인 페이지)
-	resp, err := d.client.Get("https://www.dhlottery.co.kr/common.do?method=main")
+	// 로또 구매 페이지에서 예치금을 확인 (가장 안정적)
+	// 마이페이지는 JavaScript로 동적 렌더링되어 HTTP 요청으로 가져올 수 없음
+	buyPageURL := "https://ol.dhlottery.co.kr/olotto/game/game645.do"
+
+	req, err := http.NewRequest("GET", buyPageURL, nil)
 	if err != nil {
-		return 0, fmt.Errorf("메인 페이지 접속 실패: %w", err)
+		return 0, fmt.Errorf("구매 페이지 요청 생성 실패: %w", err)
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.dhlottery.co.kr/")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("구매 페이지 접속 실패: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -216,11 +304,11 @@ func (d *DhLottery) CheckBalance() (int, error) {
 		return 0, fmt.Errorf("HTML 파싱 실패: %w", err)
 	}
 
-	// 예치금 요소 찾기 (여러 방법 시도)
+	// 예치금 요소 찾기
 	balance := 0
 
-	// 방법 1: .topAccount .information .money a strong
-	doc.Find(".topAccount .information .money a strong").Each(func(i int, s *goquery.Selection) {
+	// 방법 1: #moneyBalance (구매 페이지의 예치금 표시)
+	doc.Find("#moneyBalance").Each(func(i int, s *goquery.Selection) {
 		balanceText := strings.TrimSpace(s.Text())
 		balanceText = strings.ReplaceAll(balanceText, ",", "")
 		balanceText = strings.ReplaceAll(balanceText, "원", "")
@@ -230,34 +318,46 @@ func (d *DhLottery) CheckBalance() (int, error) {
 		}
 	})
 
-	// 방법 2: .money strong (첫 번째 시도 실패시)
+	// 방법 2: input#moneyBalance (hidden 필드일 수도 있음)
 	if balance == 0 {
-		doc.Find(".money strong").Each(func(i int, s *goquery.Selection) {
-			balanceText := strings.TrimSpace(s.Text())
-			if strings.Contains(balanceText, "원") {
-				balanceText = strings.ReplaceAll(balanceText, ",", "")
+		doc.Find("input#moneyBalance").Each(func(i int, s *goquery.Selection) {
+			if val, exists := s.Attr("value"); exists {
+				balanceText := strings.ReplaceAll(val, ",", "")
 				balanceText = strings.ReplaceAll(balanceText, "원", "")
 				balanceText = strings.TrimSpace(balanceText)
 				if balanceText != "" {
 					fmt.Sscanf(balanceText, "%d", &balance)
-					log.Printf("   (방법2) 추출: %s -> %d\n", s.Text(), balance)
 				}
 			}
 		})
 	}
 
-	// 방법 3: a href에 depositListView가 있는 strong
+	// 방법 3: 마이페이지 시도 (폴백 - JavaScript 렌더링 문제로 작동 안할 수 있음)
 	if balance == 0 {
-		doc.Find("a[href*='depositListView'] strong").Each(func(i int, s *goquery.Selection) {
-			balanceText := strings.TrimSpace(s.Text())
-			balanceText = strings.ReplaceAll(balanceText, ",", "")
-			balanceText = strings.ReplaceAll(balanceText, "원", "")
-			balanceText = strings.TrimSpace(balanceText)
-			if balanceText != "" {
-				fmt.Sscanf(balanceText, "%d", &balance)
-				log.Printf("   (방법3) 추출: %s -> %d\n", s.Text(), balance)
+		log.Println("   → 구매 페이지에서 예치금을 찾지 못했습니다. 마이페이지 시도 중...")
+
+		mypageResp, err := d.client.Get("https://www.dhlottery.co.kr/mypage/home")
+		if err == nil {
+			defer mypageResp.Body.Close()
+			mypageBody, _ := io.ReadAll(mypageResp.Body)
+			mypageDoc, err := goquery.NewDocumentFromReader(strings.NewReader(string(mypageBody)))
+			if err == nil {
+				mypageDoc.Find("#totalAmt, span.deposit-num").Each(func(i int, s *goquery.Selection) {
+					balanceText := strings.TrimSpace(s.Text())
+					balanceText = strings.ReplaceAll(balanceText, ",", "")
+					balanceText = strings.ReplaceAll(balanceText, "원", "")
+					balanceText = strings.TrimSpace(balanceText)
+					if balanceText != "" && balance == 0 {
+						fmt.Sscanf(balanceText, "%d", &balance)
+					}
+				})
 			}
-		})
+		}
+	}
+
+	if balance == 0 {
+		log.Println("   ⚠️  예치금 정보를 찾을 수 없습니다.")
+		log.Printf("   페이지 내용 샘플 (처음 300자):\n%s\n", bodyStr[:min(300, len(bodyStr))])
 	}
 
 	log.Printf("✅ 예치금 확인 완료: %s원\n", formatMoney(balance))
@@ -740,7 +840,7 @@ func (d *DhLottery) printBuyResult(result map[string]interface{}) {
 			// 구매 번호 출력
 			if arrGameChoiceNum, ok := resultData["arrGameChoiceNum"].([]interface{}); ok {
 				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-				log.Printf("    구매 게임 수: %d 게임 (총 %,d원)\n", len(arrGameChoiceNum), len(arrGameChoiceNum)*1000)
+				log.Printf("    구매 게임 수: %d 게임 (총 %s원)\n", len(arrGameChoiceNum), formatMoney(len(arrGameChoiceNum)*1000))
 				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 				log.Println()
 
@@ -943,6 +1043,7 @@ func main() {
 	serviceMode := flag.Bool("service", false, "서비스 모드로 실행 (스케줄러 활성화)")
 	onceMode := flag.Bool("once", false, "즉시 1회 구매 실행")
 	checkBalanceMode := flag.Bool("check", false, "예치금만 확인")
+	dryRunMode := flag.Bool("dryrun", false, "구매 직전까지만 테스트 (실제 구매 안 함)")
 	flag.Parse()
 
 	log.Println("==============================================")
@@ -979,6 +1080,13 @@ func main() {
 	if *checkBalanceMode {
 		log.Println("💰 예치금 확인 모드")
 		checkBalanceTask(config, telegramBot)
+		return
+	}
+
+	// Dry-run 모드 (구매 직전까지만 테스트)
+	if *dryRunMode {
+		log.Println("🧪 Dry-run 모드 (구매 직전까지만 테스트)")
+		dryRunTask(config)
 		return
 	}
 
@@ -1128,6 +1236,129 @@ func checkBalanceTask(config Config, telegramBot *TelegramBot) {
 	}
 
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+}
+
+// dryRunTask는 구매 직전까지만 테스트합니다
+func dryRunTask(config Config) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("          🧪 Dry-run 테스트")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 클라이언트 생성
+	client, err := NewDhLottery(config)
+	if err != nil {
+		log.Printf("❌ 클라이언트 생성 실패: %v\n", err)
+		return
+	}
+
+	// 로그인
+	log.Println()
+	log.Println("=== 1단계: 로그인 테스트 ===")
+	if err := client.Login(); err != nil {
+		log.Printf("❌ 로그인 실패: %v\n", err)
+		return
+	}
+
+	// 예치금 확인
+	log.Println()
+	log.Println("=== 2단계: 예치금 확인 ===")
+	balance, err := client.CheckBalance()
+	if err != nil {
+		log.Printf("❌ 예치금 확인 실패: %v\n", err)
+	} else {
+		log.Printf("✅ 현재 예치금: %s원\n", formatMoney(balance))
+	}
+
+	// 구매 페이지 접근
+	log.Println()
+	log.Println("=== 3단계: 로또 6/45 구매 페이지 접근 ===")
+	if err := client.NavigateToLottoBuyPage(); err != nil {
+		log.Printf("❌ 구매 페이지 접근 실패: %v\n", err)
+		return
+	}
+
+	// 실제 로또 구매 페이지 접근 (iframe 내부)
+	log.Println()
+	log.Println("=== 4단계: 구매 정보 추출 ===")
+	buyPageURL := "https://ol.dhlottery.co.kr/olotto/game/game645.do"
+
+	req, err := http.NewRequest("GET", buyPageURL, nil)
+	if err != nil {
+		log.Printf("❌ 구매 페이지 요청 생성 실패: %v\n", err)
+		return
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+	resp, err := client.client.Do(req)
+	if err != nil {
+		log.Printf("❌ 구매 페이지 접속 실패: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+
+	// HTML 파싱하여 구매에 필요한 정보 추출
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(bodyStr))
+	if err != nil {
+		log.Printf("❌ HTML 파싱 실패: %v\n", err)
+		return
+	}
+
+	gameInfo := LottoGameInfo{}
+
+	doc.Find("#curRound").Each(func(i int, s *goquery.Selection) {
+		gameInfo.CurRound = strings.TrimSpace(s.Text())
+	})
+
+	doc.Find("#ROUND_DRAW_DATE").Each(func(i int, s *goquery.Selection) {
+		if val, exists := s.Attr("value"); exists {
+			gameInfo.RoundDrawDate = val
+		}
+	})
+
+	doc.Find("#WAMT_PAY_TLMT_END_DT").Each(func(i int, s *goquery.Selection) {
+		if val, exists := s.Attr("value"); exists {
+			gameInfo.WamtPayTlmtEndDt = val
+		}
+	})
+
+	doc.Find("#moneyBalance").Each(func(i int, s *goquery.Selection) {
+		gameInfo.MoneyBalance = strings.TrimSpace(s.Text())
+	})
+
+	log.Println("✅ 구매 정보 추출 완료:")
+	log.Printf("   → 현재 회차: %s회\n", gameInfo.CurRound)
+	log.Printf("   → 추첨일: %s\n", gameInfo.RoundDrawDate)
+	log.Printf("   → 지급기한: %s\n", gameInfo.WamtPayTlmtEndDt)
+	log.Printf("   → 예치금 잔액: %s원\n", gameInfo.MoneyBalance)
+
+	// 대기열 체크
+	log.Println()
+	log.Println("=== 5단계: 구매 대기열 확인 ===")
+	directIP, err := client.checkReadySocket()
+	if err != nil {
+		log.Printf("⚠️  대기열 확인: %v\n", err)
+	} else {
+		if directIP != "" {
+			log.Printf("✅ 대기열 없음, 즉시 구매 가능 (IP: %s)\n", directIP)
+		} else {
+			log.Println("✅ 대기열 확인 완료")
+		}
+	}
+
+	log.Println()
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("✅ Dry-run 테스트 완료!")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+	log.Println("💡 실제 구매는 하지 않았습니다.")
+	log.Println("💡 실제 구매를 하려면 -once 옵션을 사용하세요.")
 	log.Println()
 }
 
