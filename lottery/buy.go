@@ -172,8 +172,8 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 
 	for i := 0; i < quantity; i++ {
 		param[i] = map[string]interface{}{
-			"genType":          "0",
-			"arrGameChoiceNum": nil,
+			"genType":          "0", // 0 = 자동 선택
+			"arrGameChoiceNum": "",  // null 대신 빈 문자열
 			"alpabet":          alpabet[i],
 		}
 	}
@@ -189,6 +189,7 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 	formData.Set("ROUND_DRAW_DATE", gameInfo.RoundDrawDate)
 	formData.Set("WAMT_PAY_TLMT_END_DT", gameInfo.WamtPayTlmtEndDt)
 	formData.Set("gameCnt", fmt.Sprintf("%d", quantity))
+	formData.Set("saleMdaDcd", "10") // 판매 매체 구분 코드
 
 	req, err := http.NewRequest("POST", buyURL, strings.NewReader(formData.Encode()))
 	if err != nil {
@@ -210,8 +211,6 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 	bodyStr := string(body)
 
 	log.Printf("   → 구매 응답 상태 코드: %d\n", resp.StatusCode)
-	log.Printf("   → 구매 응답 URL: %s\n", resp.Request.URL.String())
-	log.Printf("   → 구매 응답 길이: %d bytes\n", len(bodyStr))
 
 	// JSON 파싱
 	var buyResult map[string]interface{}
@@ -225,8 +224,6 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 
 		return nil, fmt.Errorf("구매 응답 파싱 실패: %w", err)
 	}
-
-	log.Printf("   → 구매 응답 파싱 성공\n")
 
 	return buyResult, nil
 }
