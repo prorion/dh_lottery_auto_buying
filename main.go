@@ -96,6 +96,7 @@ func runScheduler(cfg config.Config, bot *telegram.Bot) {
 	// 스케줄 등록
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	log.Println("    예약된 스케줄:")
+	log.Println("    - 당첨 확인: 매주 월요일 오후 12시 50분")
 	log.Println("    - 예치금 확인: 매주 월요일 오후 1시")
 	log.Println("    - 로또 구매: 매주 월요일 오후 7시")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -115,6 +116,13 @@ func runScheduler(cfg config.Config, bot *telegram.Bot) {
 		tasks.CheckBalanceAndBuy(cfg, bot)
 	}); err != nil {
 		log.Fatalf("❌ 로또 구매 스케줄 등록 실패: %v", err)
+	}
+
+	// 당첨 확인: 매주 월요일 오후 12시 50분 (12:50)
+	if err := sched.AddFunc("50 12 * * 1", func() {
+		tasks.CheckWinning(cfg, bot)
+	}); err != nil {
+		log.Fatalf("❌ 당첨 확인 스케줄 등록 실패: %v", err)
 	}
 
 	sched.Start()

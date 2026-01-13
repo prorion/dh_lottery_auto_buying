@@ -115,6 +115,14 @@ func (c *Client) BuyLottoAutoWithResult(userID string, quantity int) (map[string
 	// 6단계: 텔레그램용 메시지 생성
 	telegramMsg := c.formatTelegramMessage(userID, result, quantity)
 
+	// 7단계: 구매 내역 저장
+	if err := SavePurchaseHistory(userID, gameInfo.CurRound, gameInfo.RoundDrawDate, result); err != nil {
+		log.Printf("⚠️  구매 내역 저장 실패: %v\n", err)
+		// 저장 실패는 치명적이지 않으므로 계속 진행
+	} else {
+		log.Printf("✅ 구매 내역 저장 완료: logs/last_purchase.json\n")
+	}
+
 	return result, telegramMsg, nil
 }
 

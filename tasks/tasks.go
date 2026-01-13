@@ -335,3 +335,69 @@ func dryRunForAccount(account config.Account) {
 	log.Println()
 	log.Println("✅ 테스트 완료! (실제 구매는 하지 않았습니다)")
 }
+
+// CheckWinning은 당첨번호를 확인하고 구매 번호와 비교합니다 (모든 계정)
+func CheckWinning(cfg config.Config, bot *telegram.Bot) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("          🎰 당첨번호 확인 작업")
+	log.Printf("          (총 %d개 계정)\n", len(cfg.Accounts))
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+
+	// 1단계: 최근 당첨번호 조회
+	log.Println("=== 1단계: 당첨번호 조회 ===")
+	result, err := lottery.GetLatestResult()
+	if err != nil {
+		log.Printf("❌ 당첨번호 조회 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>당첨번호 조회 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 2단계: 구매 내역 조회
+	log.Println()
+	log.Println("=== 2단계: 구매 내역 조회 ===")
+	history, err := lottery.GetLastPurchaseHistory()
+	if err != nil {
+		log.Printf("❌ 구매 내역 조회 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>구매 내역 조회 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	if history == nil {
+		log.Println("ℹ️  저장된 구매 내역이 없습니다")
+		if bot != nil {
+			bot.SendMessageSafe("ℹ️ <b>당첨 확인 불가</b>\n\n저장된 구매 내역이 없습니다.")
+		}
+		return
+	}
+
+	log.Printf("✅ 구매 내역 조회 완료: %s회\n", history.Round)
+
+	// 3단계: 각 계정별 당첨 확인
+	log.Println()
+	log.Println("=== 3단계: 당첨 확인 ===")
+
+	for i, account := range cfg.Accounts {
+		log.Println()
+		log.Printf("┌─────────────────────────────────────┐")
+		log.Printf("│ 계정 %d/%d: %s", i+1, len(cfg.Accounts), account.UserID)
+		log.Printf("└─────────────────────────────────────┘")
+		log.Println()
+
+		// 당첨 메시지 생성
+		message := lottery.FormatWinningMessage(account.UserID, result, history)
+		log.Printf("✅ 당첨 확인 완료\n")
+
+		// 텔레그램 전송
+		if bot != nil {
+			bot.SendMessageSafe(message)
+		}
+	}
+
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+}
