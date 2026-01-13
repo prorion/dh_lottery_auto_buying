@@ -13,7 +13,7 @@ import (
 )
 
 // BuyLottoAutoWithResult는 로또를 자동으로 구매하고 텔레그램용 메시지를 반환합니다
-func (c *Client) BuyLottoAutoWithResult(quantity int) (map[string]interface{}, string, error) {
+func (c *Client) BuyLottoAutoWithResult(userID string, quantity int) (map[string]interface{}, string, error) {
 	// 실제 로또 구매 페이지 접근
 	buyPageURL := "https://ol.dhlottery.co.kr/olotto/game/game645.do"
 
@@ -113,7 +113,7 @@ func (c *Client) BuyLottoAutoWithResult(quantity int) (map[string]interface{}, s
 	}
 
 	// 6단계: 텔레그램용 메시지 생성
-	telegramMsg := c.formatTelegramMessage(result, quantity)
+	telegramMsg := c.formatTelegramMessage(userID, result, quantity)
 
 	return result, telegramMsg, nil
 }
@@ -232,20 +232,20 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 }
 
 // formatTelegramMessage는 구매 결과를 텔레그램 메시지로 포맷합니다
-func (c *Client) formatTelegramMessage(result map[string]interface{}, quantity int) string {
+func (c *Client) formatTelegramMessage(userID string, result map[string]interface{}, quantity int) string {
 	// 로그인 체크
 	if loginYn, ok := result["loginYn"].(string); ok && loginYn == "N" {
-		return "❌ <b>로그인 세션 만료</b>\n\n다시 로그인해주세요."
+		return fmt.Sprintf("(%s) ❌ <b>로그인 세션 만료</b>\n\n다시 로그인해주세요.", userID)
 	}
 
 	// 기기 제한 체크
 	if isAllowed, ok := result["isAllowed"].(string); ok && isAllowed == "N" {
-		return "❌ <b>구매 실패</b>\n\n모바일에서는 구매할 수 없습니다."
+		return fmt.Sprintf("(%s) ❌ <b>구매 실패</b>\n\n모바일에서는 구매할 수 없습니다.", userID)
 	}
 
 	// 판매시간 체크
 	if checkTime, ok := result["checkOltSaleTime"].(bool); ok && !checkTime {
-		return "❌ <b>구매 실패</b>\n\n현재 판매 시간이 아닙니다."
+		return fmt.Sprintf("(%s) ❌ <b>구매 실패</b>\n\n현재 판매 시간이 아닙니다.", userID)
 	}
 
 	// 결과 확인
@@ -254,7 +254,7 @@ func (c *Client) formatTelegramMessage(result map[string]interface{}, quantity i
 
 		if resultCode == "100" {
 			// 구매 성공
-			msg := "✅ <b>로또 구매 성공!</b>\n\n"
+			msg := fmt.Sprintf("(%s) ✅ <b>로또 구매 성공!</b>\n\n", userID)
 			msg += fmt.Sprintf("💰 구매 금액: <b>%s원</b>\n", FormatMoney(quantity*1000))
 			msg += fmt.Sprintf("🎱 구매 게임: <b>%d게임</b>\n\n", quantity)
 
@@ -303,7 +303,7 @@ func (c *Client) formatTelegramMessage(result map[string]interface{}, quantity i
 				resultMsg = msg
 			}
 
-			msg := "❌ <b>구매 실패</b>\n\n"
+			msg := fmt.Sprintf("(%s) ❌ <b>구매 실패</b>\n\n", userID)
 			msg += fmt.Sprintf("사유: %s\n\n", resultMsg)
 
 			if strings.Contains(resultMsg, "한도") || strings.Contains(resultMsg, "5000") {
@@ -316,7 +316,7 @@ func (c *Client) formatTelegramMessage(result map[string]interface{}, quantity i
 		}
 	}
 
-	return "❌ 구매 결과를 확인할 수 없습니다."
+	return fmt.Sprintf("(%s) ❌ 구매 결과를 확인할 수 없습니다.", userID)
 }
 
 // PrintBuyResult는 구매 결과를 출력합니다

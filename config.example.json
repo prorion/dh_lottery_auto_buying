@@ -1,7 +1,14 @@
 {
-  "userId": "your_id_here",
-  "password": "your_password_here",
+  "accounts": [
+    {
+      "userId": "your_id_1",
+      "password": "your_password_1"
+    },
+    {
+      "userId": "your_id_2",
+      "password": "your_password_2"
+    }
+  ],
   "telegramBotToken": "1234567890:ABCDefGhIjKlMnOpQrStUvWxYz1234567890",
-  "telegramChatId": -1001234567890
+  "telegramChatId": "-1001234567890"
 }
-

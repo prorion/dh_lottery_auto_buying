@@ -7,7 +7,8 @@
 - 🔐 **자동 로그인** (RSA 암호화 지원)
 - 💰 **예치금 자동 확인**
 - 🎱 **로또 자동 구매** (최대 5게임)
-- 📱 **텔레그램 알림** (구매 성공/실패 알림)
+- 👥 **멀티 계정 지원** ⭐ NEW (여러 계정 순차 처리)
+- 📱 **텔레그램 알림** (구매 성공/실패 알림, 계정별 구분)
 - 📊 **실시간 로그 파일 저장** (`logs/` 디렉토리)
 - ⏰ **스케줄러 모드** (자동 예약 구매)
 - 🔍 **테스트 모드** (실제 구매 없이 테스트)
@@ -48,24 +49,79 @@ go mod tidy
 
 ### 2. 빌드
 
+#### Windows에서 빌드
 ```bash
+# 모든 플랫폼 빌드 (Windows + Linux)
+.\build.bat
+
+# 빠른 빌드 (현재 디렉토리)
+.\build-quick.bat
+
+# 수동 빌드
 go build -o dhlottery.exe .
 ```
+
+#### Linux/Ubuntu에서 빌드
+```bash
+# 모든 플랫폼 빌드
+chmod +x build.sh
+./build.sh
+
+# 수동 빌드
+go build -o dhlottery .
+```
+
+빌드 결과:
+- `build/windows/dhlottery.exe` - Windows 실행 파일
+- `build/linux/dhlottery-amd64` - Linux/Ubuntu (64비트)
+- `build/linux/dhlottery-arm64` - Linux ARM64 (라즈베리파이 등)
 
 ### 3. 설정 파일 생성
 
 `config.json` 파일을 생성하고 아래 내용을 입력하세요:
 
+#### 단일 계정
+
 ```json
 {
-  "userId": "your_id",
-  "password": "your_password",
+  "accounts": [
+    {
+      "userId": "your_id",
+      "password": "your_password"
+    }
+  ],
   "telegramBotToken": "your_telegram_bot_token",
   "telegramChatId": "your_telegram_chat_id"
 }
 ```
 
-또는 환경변수를 사용할 수 있습니다:
+#### 여러 계정 (멀티 계정)
+
+```json
+{
+  "accounts": [
+    {
+      "userId": "account1",
+      "password": "password1"
+    },
+    {
+      "userId": "account2",
+      "password": "password2"
+    },
+    {
+      "userId": "account3",
+      "password": "password3"
+    }
+  ],
+  "telegramBotToken": "your_telegram_bot_token",
+  "telegramChatId": "your_telegram_chat_id"
+}
+```
+
+> 💡 **여러 계정을 등록하면 순차적으로 예치금 확인 및 구매가 진행됩니다.**
+> 각 계정은 독립적인 세션을 사용하므로 로그아웃 처리 없이 자동으로 분리됩니다.
+
+또는 환경변수를 사용할 수 있습니다 (단일 계정만):
 
 ```bash
 set DH_LOTTERY_ID=your_id
@@ -157,6 +213,12 @@ MIT License
 문제가 발생하면 이슈를 등록해주세요.
 
 ## 📅 업데이트 내역
+
+### v2.1.0 (2026-01-13)
+- ✨ **멀티 계정 지원** - 여러 계정을 등록하여 순차적으로 처리
+- ✨ 텔레그램 메시지에 계정 ID 표시 (예: `(prorion) ✅ 로또 구매 성공!`)
+- ✨ 계정별 독립 세션 관리
+- 📝 설정 파일 형식 변경 (accounts 배열)
 
 ### v2.0.0 (2026-01-13)
 - ✨ 프로젝트 구조 개선 (패키지 분리)

@@ -9,12 +9,17 @@ import (
 	"strings"
 )
 
-// Config는 로그인 및 구매 설정을 담는 구조체입니다
+// Account는 개별 계정 정보를 담는 구조체입니다
+type Account struct {
+	UserID   string `json:"userId"`
+	Password string `json:"password"`
+}
+
+// Config는 전체 설정을 담는 구조체입니다
 type Config struct {
-	UserID           string `json:"userId"`
-	Password         string `json:"password"`
-	TelegramBotToken string `json:"telegramBotToken,omitempty"`
-	TelegramChatID   string `json:"telegramChatId,omitempty"`
+	Accounts         []Account `json:"accounts"`
+	TelegramBotToken string    `json:"telegramBotToken,omitempty"`
+	TelegramChatID   string    `json:"telegramChatId,omitempty"`
 }
 
 // Load는 설정을 로드합니다
@@ -40,7 +45,7 @@ func Load() (Config, error) {
 	return LoadInteractive()
 }
 
-// LoadFromEnv는 환경변수에서 설정을 로드합니다
+// LoadFromEnv는 환경변수에서 설정을 로드합니다 (단일 계정)
 func LoadFromEnv() (Config, error) {
 	userID := os.Getenv("DH_LOTTERY_ID")
 	password := os.Getenv("DH_LOTTERY_PW")
@@ -52,8 +57,12 @@ func LoadFromEnv() (Config, error) {
 	}
 
 	return Config{
-		UserID:           userID,
-		Password:         password,
+		Accounts: []Account{
+			{
+				UserID:   userID,
+				Password: password,
+			},
+		},
 		TelegramBotToken: telegramToken,
 		TelegramChatID:   telegramChatID,
 	}, nil
@@ -71,14 +80,21 @@ func LoadFromFile(filename string) (Config, error) {
 		return Config{}, fmt.Errorf("설정 파일 파싱 실패: %w", err)
 	}
 
-	if config.UserID == "" || config.Password == "" {
-		return Config{}, fmt.Errorf("설정 파일에 필수 정보가 없습니다")
+	if len(config.Accounts) == 0 {
+		return Config{}, fmt.Errorf("설정 파일에 계정 정보가 없습니다")
+	}
+
+	// 각 계정의 필수 정보 검증
+	for i, account := range config.Accounts {
+		if account.UserID == "" || account.Password == "" {
+			return Config{}, fmt.Errorf("계정 %d: 아이디와 비밀번호가 필요합니다", i+1)
+		}
 	}
 
 	return config, nil
 }
 
-// LoadInteractive는 사용자 입력으로 설정을 로드합니다
+// LoadInteractive는 사용자 입력으로 설정을 로드합니다 (단일 계정)
 func LoadInteractive() (Config, error) {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -95,23 +111,28 @@ func LoadInteractive() (Config, error) {
 	}
 
 	return Config{
-		UserID:   userID,
-		Password: password,
+		Accounts: []Account{
+			{
+				UserID:   userID,
+				Password: password,
+			},
+		},
 	}, nil
 }
 
 // Print는 설정 정보를 출력합니다 (보안상 비밀번호는 마스킹)
 func (c *Config) Print() {
-	maskedPw := ""
-	if len(c.Password) > 0 {
-		maskedPw = strings.Repeat("*", len(c.Password))
+	log.Println("=== 설정 정보 ===")
+	log.Printf("등록된 계정 수: %d\n", len(c.Accounts))
+
+	for i, account := range c.Accounts {
+		maskedPw := strings.Repeat("*", len(account.Password))
+		log.Printf("  [계정 %d] %s / %s\n", i+1, account.UserID, maskedPw)
 	}
 
-	configJSON, _ := json.MarshalIndent(map[string]string{
-		"UserID":   c.UserID,
-		"Password": maskedPw,
-	}, "", "  ")
-
-	log.Println("=== 설정 정보 ===")
-	log.Println(string(configJSON))
+	if c.TelegramBotToken != "" && c.TelegramChatID != "" {
+		log.Println("  텔레그램 알림: 활성화")
+	} else {
+		log.Println("  텔레그램 알림: 비활성화")
+	}
 }
