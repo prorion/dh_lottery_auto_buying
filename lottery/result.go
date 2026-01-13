@@ -1,13 +1,12 @@
 package lottery
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
-
-	"github.com/PuerkitoBio/goquery"
 )
 
 // LottoResult는 당첨 결과 정보
@@ -20,52 +19,57 @@ type LottoResult struct {
 
 // GetLatestResult는 최근 당첨번호를 가져옵니다
 func GetLatestResult() (*LottoResult, error) {
-	url := "https://www.dhlottery.co.kr/lt645/intro"
+	url := "https://www.dhlottery.co.kr/lt645/selectPstLt645Info.do"
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("페이지 접속 실패: %w", err)
+		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
 	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("HTML 파싱 실패: %w", err)
+		return nil, fmt.Errorf("응답 읽기 실패: %w", err)
+	}
+
+	// JSON 파싱
+	var apiResponse struct {
+		Data struct {
+			List []struct {
+				LtEpsd   int    `json:"ltEpsd"`   // 회차
+				LtRflYmd string `json:"ltRflYmd"` // 추첨일 (YYYYMMDD)
+				Tm1WnNo  int    `json:"tm1WnNo"`  // 당첨번호 1
+				Tm2WnNo  int    `json:"tm2WnNo"`  // 당첨번호 2
+				Tm3WnNo  int    `json:"tm3WnNo"`  // 당첨번호 3
+				Tm4WnNo  int    `json:"tm4WnNo"`  // 당첨번호 4
+				Tm5WnNo  int    `json:"tm5WnNo"`  // 당첨번호 5
+				Tm6WnNo  int    `json:"tm6WnNo"`  // 당첨번호 6
+				BnsWnNo  int    `json:"bnsWnNo"`  // 보너스번호
+			} `json:"list"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &apiResponse); err != nil {
+		return nil, fmt.Errorf("JSON 파싱 실패: %w", err)
+	}
+
+	if len(apiResponse.Data.List) == 0 {
+		return nil, fmt.Errorf("당첨 정보가 없습니다")
+	}
+
+	data := apiResponse.Data.List[0]
+
+	// 날짜 포맷 변환 (YYYYMMDD -> YYYY-MM-DD)
+	dateStr := data.LtRflYmd
+	if len(dateStr) == 8 {
+		dateStr = fmt.Sprintf("%s-%s-%s", dateStr[0:4], dateStr[4:6], dateStr[6:8])
 	}
 
 	result := &LottoResult{
-		Numbers: make([]int, 0, 6),
-	}
-
-	// 회차 추출 (예: "제1206회" -> "1206")
-	roundText := strings.TrimSpace(doc.Find("#pstLtEpsd").Text())
-	roundText = strings.ReplaceAll(roundText, "제", "")
-	roundText = strings.ReplaceAll(roundText, "회", "")
-	result.Round = strings.TrimSpace(roundText)
-
-	// 추첨일 추출 (예: "2026-01-10 추첨" -> "2026-01-10")
-	dateText := strings.TrimSpace(doc.Find("#pstLtRflYmd").Text())
-	dateText = strings.ReplaceAll(dateText, " 추첨", "")
-	result.DrawDate = strings.TrimSpace(dateText)
-
-	// 당첨번호 추출
-	numberIDs := []string{"#tm1WnNo", "#tm2WnNo", "#tm3WnNo", "#tm4WnNo", "#tm5WnNo", "#tm6WnNo"}
-	for _, id := range numberIDs {
-		numText := strings.TrimSpace(doc.Find(id).Text())
-		if num, err := strconv.Atoi(numText); err == nil {
-			result.Numbers = append(result.Numbers, num)
-		}
-	}
-
-	// 보너스번호 추출
-	bonusText := strings.TrimSpace(doc.Find("#bnsWnNo").Text())
-	if bonus, err := strconv.Atoi(bonusText); err == nil {
-		result.BonusNumber = bonus
-	}
-
-	// 유효성 검증
-	if result.Round == "" || len(result.Numbers) != 6 {
-		return nil, fmt.Errorf("당첨번호 추출 실패: 회차=%s, 번호개수=%d", result.Round, len(result.Numbers))
+		Round:       strconv.Itoa(data.LtEpsd),
+		DrawDate:    dateStr,
+		Numbers:     []int{data.Tm1WnNo, data.Tm2WnNo, data.Tm3WnNo, data.Tm4WnNo, data.Tm5WnNo, data.Tm6WnNo},
+		BonusNumber: data.BnsWnNo,
 	}
 
 	log.Printf("✅ 당첨번호 조회 완료: %s회 (%s)\n", result.Round, result.DrawDate)
@@ -126,7 +130,7 @@ func FormatWinningMessage(userID string, result *LottoResult, history *PurchaseH
 
 	// 회차 확인
 	if history.Round != result.Round {
-		return fmt.Sprintf("(%s) ℹ️ <b>당첨 확인 불가</b>\n\n구매 회차(%s회)와 추첨 회차(%s회)가 다릅니다.", 
+		return fmt.Sprintf("(%s) ℹ️ <b>당첨 확인 불가</b>\n\n구매 회차(%s회)와 추첨 회차(%s회)가 다릅니다.",
 			userID, history.Round, result.Round)
 	}
 
@@ -187,7 +191,7 @@ func FormatWinningMessage(userID string, result *LottoResult, history *PurchaseH
 				msg += " + 보너스"
 			}
 			msg += ")\n"
-			
+
 			if bestRank == 0 || rank < bestRank {
 				bestRank = rank
 			}
