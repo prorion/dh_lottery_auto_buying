@@ -101,11 +101,11 @@ crontab -e
 ### 2. 스케줄 추가
 
 ```bash
-# 매주 토요일 오전 6시에 실행
-0 6 * * 6 cd /home/user && ./dhlottery >> /home/user/logs/cron.log 2>&1
+# 매주 월요일 오후 1시에 예치금 확인
+0 13 * * 1 cd /home/user && ./dhlottery -check >> /home/user/logs/cron.log 2>&1
 
-# 매주 월요일 오전 8시에 예치금 확인
-0 8 * * 1 cd /home/user && ./dhlottery -check >> /home/user/logs/cron.log 2>&1
+# 매주 월요일 오후 7시에 로또 구매
+0 19 * * 1 cd /home/user && ./dhlottery >> /home/user/logs/cron.log 2>&1
 ```
 
 ### 3. Cron 로그 확인
@@ -296,3 +296,4 @@ curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage" \
 ---
 
 **Happy Lottery! 🎱**
+
