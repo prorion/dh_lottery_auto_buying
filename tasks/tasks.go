@@ -1,0 +1,278 @@
+package tasks
+
+import (
+	"dhlottery/config"
+	"dhlottery/lottery"
+	"dhlottery/telegram"
+	"fmt"
+	"log"
+)
+
+// CheckBalance는 예치금 확인 작업을 수행합니다
+func CheckBalance(cfg config.Config, bot *telegram.Bot) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("          💰 예치금 확인 작업")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 클라이언트 생성
+	client, err := lottery.NewClient(cfg.UserID, cfg.Password)
+	if err != nil {
+		log.Printf("❌ 클라이언트 생성 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>예치금 확인 실패</b>\n\n클라이언트 생성 오류: %v", err))
+		}
+		return
+	}
+
+	// 로그인
+	if err := client.Login(); err != nil {
+		log.Printf("❌ 로그인 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>동행복권 로그인 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 예치금 확인
+	balance, err := client.CheckBalance()
+	if err != nil {
+		log.Printf("❌ 예치금 확인 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>예치금 확인 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 예치금이 10,000원 미만인 경우 알림
+	if balance < 10000 {
+		log.Printf("⚠️  예치금 부족: %s원 (10,000원 미만)\n", lottery.FormatMoney(balance))
+
+		if bot != nil {
+			message := fmt.Sprintf(
+				"⚠️ <b>예치금 부족 알림</b>\n\n"+
+					"현재 예치금: <b>%s원</b>\n"+
+					"기준 금액: 10,000원\n\n"+
+					"💡 예치금을 충전해주세요!",
+				lottery.FormatMoney(balance),
+			)
+			bot.SendMessageSafe(message)
+		}
+	} else {
+		log.Printf("✅ 예치금 충분: %s원\n", lottery.FormatMoney(balance))
+		// 10,000원 이상이면 텔레그램 알림 보내지 않음
+	}
+
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// BuyLotto는 로또 구매 작업을 수행합니다
+func BuyLotto(cfg config.Config, bot *telegram.Bot) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("          🎱 로또 구매 작업")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 클라이언트 생성
+	client, err := lottery.NewClient(cfg.UserID, cfg.Password)
+	if err != nil {
+		log.Printf("❌ 클라이언트 생성 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n클라이언트 생성 오류: %v", err))
+		}
+		return
+	}
+
+	// 로그인
+	log.Println("=== 로그인 시작 ===")
+	if err := client.Login(); err != nil {
+		log.Printf("❌ 로그인 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n로그인 오류: %v", err))
+		}
+		return
+	}
+
+	// 구매 페이지 접근
+	log.Println()
+	log.Println("=== 로또 6/45 구매 페이지 접근 ===")
+	if err := client.NavigateToLottoBuyPage(); err != nil {
+		log.Printf("❌ 구매 페이지 접근 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n페이지 접근 오류: %v", err))
+		}
+		return
+	}
+
+	// 로또 구매 (5게임)
+	log.Println()
+	log.Println("=== 로또 자동 구매 (5게임) ===")
+	result, resultMsg, err := client.BuyLottoAutoWithResult(5)
+	if err != nil {
+		log.Printf("❌ 구매 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 구매 결과 출력
+	client.PrintBuyResult(result)
+
+	// 텔레그램 알림 전송
+	if bot != nil {
+		bot.SendMessageSafe(resultMsg)
+	}
+
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+}
+
+// CheckBalanceAndBuy는 예치금 확인 후 로또 구매 작업을 수행합니다
+func CheckBalanceAndBuy(cfg config.Config, bot *telegram.Bot) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("      💰 예치금 확인 및 로또 구매 작업")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 클라이언트 생성
+	client, err := lottery.NewClient(cfg.UserID, cfg.Password)
+	if err != nil {
+		log.Printf("❌ 클라이언트 생성 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>작업 실패</b>\n\n클라이언트 생성 오류: %v", err))
+		}
+		return
+	}
+
+	// 1단계: 로그인
+	log.Println()
+	log.Println("=== 1단계: 로그인 ===")
+	if err := client.Login(); err != nil {
+		log.Printf("❌ 로그인 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로그인 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 2단계: 예치금 확인
+	log.Println()
+	log.Println("=== 2단계: 예치금 확인 ===")
+	balance, err := client.CheckBalance()
+	if err != nil {
+		log.Printf("❌ 예치금 확인 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>예치금 확인 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 예치금 부족 체크
+	if balance < 5000 {
+		log.Printf("⚠️  예치금 부족: %s원 (최소 5,000원 필요)\n", lottery.FormatMoney(balance))
+		if bot != nil {
+			message := fmt.Sprintf(
+				"⚠️ <b>예치금 부족 알림</b>\n\n"+
+					"현재 예치금: <b>%s원</b>\n"+
+					"필요 금액: 5,000원\n\n"+
+					"💡 예치금을 충전해주세요!",
+				lottery.FormatMoney(balance),
+			)
+			bot.SendMessageSafe(message)
+		}
+		log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		return
+	}
+
+	log.Printf("✅ 예치금 충분: %s원\n", lottery.FormatMoney(balance))
+
+	// 예치금 알림 (텔레그램)
+	if bot != nil && balance < 10000 {
+		message := fmt.Sprintf(
+			"⚠️ <b>예치금 알림</b>\n\n"+
+				"현재 예치금: <b>%s원</b>\n\n"+
+				"💡 예치금이 10,000원 미만입니다.",
+			lottery.FormatMoney(balance),
+		)
+		bot.SendMessageSafe(message)
+	}
+
+	// 3단계: 구매 페이지 접근
+	log.Println()
+	log.Println("=== 3단계: 로또 6/45 구매 페이지 접근 ===")
+	if err := client.NavigateToLottoBuyPage(); err != nil {
+		log.Printf("❌ 구매 페이지 접근 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n페이지 접근 오류: %v", err))
+		}
+		return
+	}
+
+	// 4단계: 로또 구매 (5게임)
+	log.Println()
+	log.Println("=== 4단계: 로또 자동 구매 (5게임) ===")
+	result, resultMsg, err := client.BuyLottoAutoWithResult(5)
+	if err != nil {
+		log.Printf("❌ 구매 실패: %v\n", err)
+		if bot != nil {
+			bot.SendMessageSafe(fmt.Sprintf("❌ <b>로또 구매 실패</b>\n\n%v", err))
+		}
+		return
+	}
+
+	// 구매 결과 출력
+	client.PrintBuyResult(result)
+
+	// 텔레그램 알림 전송
+	if bot != nil {
+		bot.SendMessageSafe(resultMsg)
+	}
+
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+}
+
+// DryRun은 구매하지 않고 테스트만 수행합니다
+func DryRun(cfg config.Config, bot *telegram.Bot) {
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("    🔍 테스트 모드 (실제 구매 안 함)")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 클라이언트 생성
+	client, err := lottery.NewClient(cfg.UserID, cfg.Password)
+	if err != nil {
+		log.Printf("❌ 클라이언트 생성 실패: %v\n", err)
+		return
+	}
+
+	// 로그인
+	log.Println()
+	log.Println("=== 1단계: 로그인 ===")
+	if err := client.Login(); err != nil {
+		log.Printf("❌ 로그인 실패: %v\n", err)
+		return
+	}
+
+	// 예치금 확인
+	log.Println()
+	log.Println("=== 2단계: 예치금 확인 ===")
+	balance, err := client.CheckBalance()
+	if err != nil {
+		log.Printf("❌ 예치금 확인 실패: %v\n", err)
+		return
+	}
+
+	log.Printf("✅ 현재 예치금: %s원\n", lottery.FormatMoney(balance))
+
+	// 구매 페이지 접근
+	log.Println()
+	log.Println("=== 3단계: 로또 6/45 구매 페이지 접근 ===")
+	if err := client.NavigateToLottoBuyPage(); err != nil {
+		log.Printf("❌ 구매 페이지 접근 실패: %v\n", err)
+		return
+	}
+
+	log.Println()
+	log.Println("✅ 모든 테스트 완료!")
+	log.Println("   실제 구매는 하지 않았습니다.")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println()
+}
