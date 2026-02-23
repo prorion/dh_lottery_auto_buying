@@ -14,6 +14,11 @@ import (
 
 // BuyLottoAutoWithResult는 로또를 자동으로 구매하고 텔레그램용 메시지를 반환합니다
 func (c *Client) BuyLottoAutoWithResult(userID string, quantity int) (map[string]interface{}, string, error) {
+	// 진입 경로: www 메인 → 로또 6/45 소개 (페이지 구조 변경 대응)
+	if err := c.EnsureLottoEntryPath(); err != nil {
+		log.Printf("   ⚠️  진입 경로 방문 실패(무시하고 진행): %v\n", err)
+	}
+
 	// 실제 로또 구매 페이지 접근
 	buyPageURL := "https://ol.dhlottery.co.kr/olotto/game/game645.do"
 
@@ -23,7 +28,7 @@ func (c *Client) BuyLottoAutoWithResult(userID string, quantity int) (map[string
 	}
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Referer", "https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
+	req.Header.Set("Referer", LottoBuyRefURL)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 
 	resp, err := c.httpClient.Do(req)
@@ -94,7 +99,7 @@ func (c *Client) BuyLottoAutoWithResult(userID string, quantity int) (map[string
 	sessionCheckReq, err := http.NewRequest("GET", buyPageURL, nil)
 	if err == nil {
 		sessionCheckReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-		sessionCheckReq.Header.Set("Referer", "https://el.dhlottery.co.kr/game/TotalGame.jsp?LottoId=LO40")
+		sessionCheckReq.Header.Set("Referer", LottoBuyRefURL)
 		sessionCheckResp, err := c.httpClient.Do(sessionCheckReq)
 		if err == nil {
 			defer sessionCheckResp.Body.Close()
@@ -180,8 +185,8 @@ func (c *Client) executeBuy(gameInfo LottoGameInfo, directIP string, quantity in
 
 	for i := 0; i < quantity; i++ {
 		param[i] = map[string]interface{}{
-			"genType":          "0", // 0 = 자동 선택
-			"arrGameChoiceNum": "",  // null 대신 빈 문자열
+			"genType":          "0",  // 0 = 자동 선택
+			"arrGameChoiceNum": nil,  // 자동일 때 페이지는 null 전송 (빈 문자열이면 E120 발생)
 			"alpabet":          alpabet[i],
 		}
 	}

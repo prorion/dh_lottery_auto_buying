@@ -40,10 +40,23 @@ func encryptRSA(plaintext, modulusHex, exponentHex string) (string, error) {
 	return hex.EncodeToString(ciphertext), nil
 }
 
-// Login은 동행복권 사이트에 로그인합니다
+// Login은 동행복권 사이트에 로그인합니다.
+// 절차: 메인 페이지 접근 → 로그인 페이지 접근 → RSA 공개키 → 로그인 요청
 func (c *Client) Login() error {
-	log.Println("1단계: 로그인 페이지 접속 중...")
+	log.Println("0단계: 메인 페이지 접근 중...")
+	mainReq, err := http.NewRequest("GET", LottoMainURL, nil)
+	if err != nil {
+		return fmt.Errorf("메인 페이지 요청 생성 실패: %w", err)
+	}
+	mainReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	mainReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	mainResp, err := c.httpClient.Do(mainReq)
+	if err != nil {
+		return fmt.Errorf("메인 페이지 접속 실패: %w", err)
+	}
+	mainResp.Body.Close()
 
+	log.Println("1단계: 로그인 페이지 접속 중...")
 	loginURL := "https://www.dhlottery.co.kr/login"
 
 	// 로그인 페이지 접속 (쿠키 획득)

@@ -72,3 +72,42 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// LottoEntryURLs는 로또 구매/예치금 페이지 접근 전에 거쳐야 할 진입 URL입니다.
+// 동행복권이 '추첨식 복권 > 로또 6/45 바로구매' 경로로 들어온 요청만 허용할 수 있어 사용합니다.
+const (
+	LottoMainURL   = "https://www.dhlottery.co.kr/"
+	LottoIntroURL  = "https://www.dhlottery.co.kr/lt645/intro"
+	LottoBuyRefURL = "https://www.dhlottery.co.kr/lt645/intro"
+)
+
+// EnsureLottoEntryPath는 로그인 후 로또 구매/예치금 페이지(ol 도메인) 접근 전에
+// www 메인 → 로또 6/45 소개 페이지를 순서대로 방문하여 진입 경로를 맞춥니다.
+func (c *Client) EnsureLottoEntryPath() error {
+	reqMain, err := http.NewRequest("GET", LottoMainURL, nil)
+	if err != nil {
+		return err
+	}
+	reqMain.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	reqMain.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	respMain, err := c.httpClient.Do(reqMain)
+	if err != nil {
+		return fmt.Errorf("메인 페이지 방문 실패: %w", err)
+	}
+	respMain.Body.Close()
+
+	reqIntro, err := http.NewRequest("GET", LottoIntroURL, nil)
+	if err != nil {
+		return err
+	}
+	reqIntro.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	reqIntro.Header.Set("Referer", LottoMainURL)
+	reqIntro.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	respIntro, err := c.httpClient.Do(reqIntro)
+	if err != nil {
+		return fmt.Errorf("로또 6/45 소개 페이지 방문 실패: %w", err)
+	}
+	respIntro.Body.Close()
+
+	return nil
+}
