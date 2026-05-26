@@ -97,9 +97,18 @@ func SavePurchaseHistory(userID string, round string, purchaseDate string, resul
 	return nil
 }
 
-// parseGameNumbers는 "A|20|21|27|29|30|383" 형식의 문자열을 파싱합니다
+// parseGameNumbers는 "A|20|21|27|29|30|383" 형식의 문자열을 파싱합니다.
+// 마지막 문자(예: "383"의 "3")는 genType(1:수동, 2:반자동, 3:자동)이며
+// 마지막 번호 뒤에 구분자 없이 붙어있으므로 split 전에 제거해야 합니다.
 func parseGameNumbers(gameStr string) *GamePurchase {
-	parts := strings.Split(gameStr, "|")
+	if len(gameStr) == 0 {
+		return nil
+	}
+
+	// 마지막 문자(genType)를 먼저 제거한 후 split
+	trimmed := gameStr[:len(gameStr)-1]
+
+	parts := strings.Split(trimmed, "|")
 	if len(parts) < 7 {
 		return nil
 	}
@@ -109,7 +118,7 @@ func parseGameNumbers(gameStr string) *GamePurchase {
 		Numbers: make([]int, 0, 6),
 	}
 
-	// 번호 6개 추출 (마지막은 genType이므로 제외)
+	// 번호 6개 추출
 	for i := 1; i <= 6; i++ {
 		if num, err := strconv.Atoi(parts[i]); err == nil {
 			game.Numbers = append(game.Numbers, num)
