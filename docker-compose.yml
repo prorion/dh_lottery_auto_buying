@@ -7,10 +7,10 @@ services:
     environment:
       TZ: Asia/Seoul
     volumes:
-      # 서버에만 두고 이미지에 넣지 말 것 (계정/텔레그램 토큰)
-      - ./config.json:/app/config.json:ro
-      - ./logs:/app/logs
-    # 스케줄러 모드 (월 예치금/구매/당첨확인)
+      # 호스트 경로 고정 (Jenkins 컨테이너 workspace 상대경로 사용 금지)
+      # docker.sock 로 compose 실행 시 마운트는 Docker 호스트 기준으로 해석됨
+      - /opt/dhlottery/config.json:/app/config.json:ro
+      - /opt/dhlottery/logs:/app/logs
     command: ["-service"]
     logging:
       driver: json-file
