@@ -4,6 +4,8 @@ pipeline {
   environment {
     // Docker 호스트 경로 (Jenkins 컨테이너 내부 경로가 아님)
     APP_DIR = '/opt/dhlottery'
+    IMAGE = 'dhlottery:latest'
+    CONTAINER = 'dhlottery'
   }
 
   options {
@@ -33,27 +35,27 @@ pipeline {
 
     stage('Deploy') {
       steps {
+        // Jenkins 컨테이너에 compose 플러그인이 없어도 동작 (docker CLI만 사용)
         sh '''
           set -e
 
-          # docker compose(v2 플러그인) 또는 docker-compose(v1) 중 사용 가능한 것 선택
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE="docker compose"
-          elif command -v docker-compose >/dev/null 2>&1; then
-            COMPOSE="docker-compose"
-          else
-            echo "ERROR: docker compose / docker-compose 를 찾을 수 없습니다."
-            echo "Jenkins 컨테이너에 둘 중 하나를 설치하세요."
-            echo "  예) apk add docker-cli-compose   # alpine"
-            echo "  예) apt-get install -y docker-compose-plugin"
-            docker version || true
-            exit 1
-          fi
+          echo "Building ${IMAGE} ..."
+          docker build -t "${IMAGE}" .
 
-          echo "Using: ${COMPOSE}"
-          ${COMPOSE} build
-          ${COMPOSE} up -d --remove-orphans
-          ${COMPOSE} ps
+          echo "Recreating ${CONTAINER} ..."
+          docker stop "${CONTAINER}" 2>/dev/null || true
+          docker rm "${CONTAINER}" 2>/dev/null || true
+
+          docker run -d \
+            --name "${CONTAINER}" \
+            --restart unless-stopped \
+            -e TZ=Asia/Seoul \
+            -v "${APP_DIR}/config.json:/app/config.json:ro" \
+            -v "${APP_DIR}/logs:/app/logs" \
+            "${IMAGE}" \
+            -service
+
+          docker ps --filter "name=${CONTAINER}"
         '''
       }
     }
@@ -63,8 +65,8 @@ pipeline {
         sh '''
           set -e
           sleep 2
-          docker ps --filter "name=dhlottery" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
-          docker logs --tail 50 dhlottery || true
+          docker ps --filter "name=${CONTAINER}" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+          docker logs --tail 50 "${CONTAINER}" || true
         '''
       }
     }
