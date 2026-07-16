@@ -1,0 +1,17 @@
+---
+description: 코드 변경 후 자동 커밋 및 origin/main 푸시
+alwaysApply: true
+---
+
+# Git 커밋 & 푸시
+
+이 프로젝트에서는 사용자가 별도로 요청하지 않아도, 작업으로 코드/설정 파일을 수정·추가한 뒤에는:
+
+1. `git status` / `git diff` / 최근 커밋 메시지 스타일 확인
+2. 관련 파일만 stage 후 커밋 (한국어 1줄 메시지, 레포 스타일 유지)
+3. `git push origin main` 까지 수행
+
+주의:
+- `config.json` 등 시크릿은 커밋하지 말 것
+- 커밋할 변경이 없으면 push만 확인하고 끝낸다
+- destructive git 명령(force push, hard reset 등)은 하지 말 것
