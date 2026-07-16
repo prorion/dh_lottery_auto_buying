@@ -1,0 +1,19 @@
+services:
+  dhlottery:
+    build: .
+    image: dhlottery:latest
+    container_name: dhlottery
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      # 서버에만 두고 이미지에 넣지 말 것 (계정/텔레그램 토큰)
+      - ./config.json:/app/config.json:ro
+      - ./logs:/app/logs
+    # 스케줄러 모드 (월 예치금/구매/당첨확인)
+    command: ["-service"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

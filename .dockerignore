@@ -1,0 +1,14 @@
+.git
+.cursor
+logs
+tmp
+*.exe
+*.log
+config.json
+dhlottery
+dhlottery-linux
+dhlottery.exe
+dh_lottery_auto_buying.exe
+build
+*.md
+test
